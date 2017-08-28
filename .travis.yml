@@ -5,9 +5,9 @@ os: linux
 
 language: generic
 
-branches:
-  only:
-    - master
+#branches:
+#  only:
+#    - master
 
 env:
   global:
