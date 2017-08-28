@@ -1,16 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 set -eux
 
 PREFIX="${PREFIX:-${HOME}/opt}"
-
-if [ "${TRAVIS_OS_NAME}" = "linux" ]; then
-	export LD_LIBRARY_PATH="${PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-fi
-
-if [ "${TRAVIS_OS_NAME}" = "osx"   ]; then
-	export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-fi
-
+RUN_COVERITY_SCAN="${RUN_COVERITY_SCAN:-0}"
 
 if [ "${SSLLIB}" = "openssl" ]; then
     SSL_LIBS="${OPENSSL_LIBS}"
@@ -24,8 +16,8 @@ else
 fi
 
 
-CXXFLAGS="-O3 -std=c++14 -Wall -Werror -pthread \
-	-Wno-unused-local-typedef -DOPENVPN_SHOW_SESSION_TOKEN -DHAVE_LZ4 \
+CXXFLAGS="-O3 -std=c++14 -Wall -pthread \
+	-DOPENVPN_SHOW_SESSION_TOKEN -DHAVE_LZ4 \
 	-DUSE_ASIO -DASIO_STANDALONE -DASIO_NO_DEPRECATED ${SSL_CFLAGS}"
 
 if [[ "${CC}" == "gcc"* ]]; then
@@ -47,8 +39,28 @@ LIBS="${SSL_LIBS} -llz4"
 #    ${CXX} ${CXXFLAGS} ${INCLUDEDIRS} ${LDFLAGS} cli.cpp -o cli ${LIBS}
 #)
 
-(
-    cd test/ssl
-    ${CXX} ${CXXFLAGS} ${INCLUDEDIRS} ${LDFLAGS} proto.cpp -o proto ${LIBS}
-    ./proto
-)
+BUILD_COMMAND="${CXX} ${CXXFLAGS} ${INCLUDEDIRS} ${LDFLAGS} proto.cpp -o proto ${LIBS}"
+
+if [ "${RUN_COVERITY_SCAN}" = "0" -o "${TRAVIS_BRANCH}" != "${COVERITY_BRANCH}" ]; then
+	cd test/ssl
+	$BUILD_COMMAND
+
+	if [ "${TRAVIS_OS_NAME}" = "linux" ]; then
+		export LD_LIBRARY_PATH="${PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+	fi
+
+	if [ "${TRAVIS_OS_NAME}" = "osx"   ]; then
+		export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+	fi
+
+	./proto
+else
+	export COVERITY_SCAN_PROJECT_NAME="OpenVPN/openvpn3"
+	export COVERITY_SCAN_BRANCH_PATTERN="${COVERITY_BRANCH}"
+	export COVERITY_SCAN_NOTIFICATION_EMAIL="scan-reports@openvpn.net"
+	export COVERITY_SCAN_BUILD_COMMAND_PREPEND="cd test/ssl; cov-configure --comptype gcc --compiler gcc-5 --template"
+	export COVERITY_SCAN_BUILD_COMMAND="$BUILD_COMMAND"
+
+	# Ignore exit code, script exits with 1 if we're not on the right branch
+	curl -s "https://scan.coverity.com/scripts/travisci_build_coverity_scan.sh" | bash || true
+fi
